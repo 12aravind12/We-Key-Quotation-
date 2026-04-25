@@ -201,36 +201,53 @@ export default function App() {
         const el = pageElements[i] as HTMLElement;
         console.log(`Processing page ${i + 1} of ${pageElements.length}`);
         
+        // Wait a tiny bit for layout to settle in clone
         const canvas = await html2canvas(el, {
-          scale: 1.5, // Slightly lower scale for memory safety
+          scale: 1, // Start with 1 to ensure standard reliability
           useCORS: true,
-          logging: false,
+          logging: true, // Enable logging for troubleshooting
           allowTaint: true,
           backgroundColor: '#ffffff',
+          imageTimeout: 15000, // Increase timeout
           onclone: (clonedDoc) => {
-            // Simplified oklch cleaning for performance
-            // We focus on style tags and root variables
-            const styleTags = clonedDoc.getElementsByTagName('style');
-            for (let i = 0; i < styleTags.length; i++) {
-              const tag = styleTags[i];
-              if (tag.textContent) {
-                // Bulk replace oklch-based values with standard dark hex
-                // This covers most Tailwind 4 color utilities
-                tag.textContent = tag.textContent.replace(/(oklch|oklab|color-mix)\s*\([^)]+\)/gi, '#000000');
-              }
+            const cloneEl = clonedDoc.getElementById(el.id);
+            if (cloneEl) {
+              cloneEl.style.width = '210mm';
+              cloneEl.style.minHeight = '297mm';
             }
-            
-            // Inject a stylesheet that forces standard colors and resets problematic Tailwind 4 variables.
+
+            // Remove oklch/color-mix from all elements in clone
             const styleOverride = clonedDoc.createElement('style');
             styleOverride.textContent = `
+              * {
+                /* Aggressively strip problematic styles */
+                color: #000 !important;
+                border-color: #ccc !important;
+                background-image: none !important;
+                box-shadow: none !important;
+                text-shadow: none !important;
+                transition: none !important;
+                animation: none !important;
+              }
+              
+              /* Restore specific colors for items we know are safe */
+              .text-stone-500 { color: #666 !important; }
+              .text-stone-400 { color: #999 !important; }
+              .bg-stone-100 { background-color: #f3f3f3 !important; }
+              
+              .pdf-page {
+                background: #ffffff !important;
+                width: 210mm !important;
+                min-height: 297mm !important;
+                margin: 0 !important;
+                padding: 14mm !important;
+                display: block !important;
+                position: relative !important;
+                overflow: hidden !important;
+              }
+
+              /* Reset all Tailwind 4 root variables to hex fallbacks */
               :root {
-                --tw-ring-color: #000000 !important;
-                --tw-shadow-color: rgba(0,0,0,0.1) !important;
-                --tw-outline-color: #000000 !important;
-                --tw-border-opacity: 1 !important;
-                --tw-text-opacity: 1 !important;
-                --tw-bg-opacity: 1 !important;
-                
                 --color-stone-900: #1c1917 !important;
                 --color-stone-800: #292524 !important;
                 --color-stone-700: #44403c !important;
@@ -241,46 +258,13 @@ export default function App() {
                 --color-stone-200: #e7e5e4 !important;
                 --color-stone-100: #f5f5f4 !important;
                 --color-stone-50: #fafaf9 !important;
-                
-                background-color: #ffffff !important;
-                color: #1c1917 !important;
               }
-              
-              * {
-                box-shadow: none !important;
-                text-shadow: none !important;
-                transition: none !important;
-                animation: none !important;
-              }
-              
-              .pdf-page {
-                background: #ffffff !important;
-                color: #1c1917 !important;
-                width: 210mm !important;
-                min-height: 297mm !important;
-                margin: 0 !important;
-                padding: 14mm !important;
-                box-shadow: none !important;
-                border: none !important;
-                overflow: hidden !important;
-                position: relative !important;
-                display: block !important;
-              }
-              
-              table, th, td {
-                border-color: #e7e5e4 !important;
-                color: #1c1917 !important;
-              }
-              
-              .text-stone-900 { color: #1c1917 !important; }
-              .text-stone-500 { color: #78716c !important; }
-              .bg-stone-100 { background-color: #f5f5f4 !important; }
             `;
             clonedDoc.head.appendChild(styleOverride);
           }
         });
 
-        const imgData = canvas.toDataURL('image/jpeg', 0.85);
+        const imgData = canvas.toDataURL('image/jpeg', 0.8);
         if (i > 0) pdf.addPage();
         pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST');
       }
@@ -293,7 +277,8 @@ export default function App() {
       window.scrollTo(0, originalScrollTop);
     } catch (error) {
       console.error('PDF Generation Error:', error);
-      alert('Failed to generate PDF. This can sometimes happen due to browser memory limits or if the page is too complex. Please try again.');
+      const msg = error instanceof Error ? error.message : String(error);
+      alert(`Failed to generate PDF: ${msg}. Try using a different browser or simplifying the content.`);
     } finally {
       setIsDownloading(false);
     }
