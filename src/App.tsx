@@ -188,6 +188,10 @@ export default function App() {
     console.log('Initiating PDF Generation');
     
     try {
+      // Ensure we are at the top for capture accuracy
+      const originalScrollTop = window.scrollY;
+      window.scrollTo(0, 0);
+
       const pdf = new jsPDF('p', 'mm', 'a4');
       const pageElements = Array.from(pagesRef.current.children);
       const pdfWidth = pdf.internal.pageSize.getWidth();
@@ -198,54 +202,28 @@ export default function App() {
         console.log(`Processing page ${i + 1} of ${pageElements.length}`);
         
         const canvas = await html2canvas(el, {
-          scale: 2, // High quality for print
+          scale: 1.5, // Slightly lower scale for memory safety
           useCORS: true,
           logging: false,
           allowTaint: true,
           backgroundColor: '#ffffff',
-          scrollY: -window.scrollY, // Reset scroll offset
           onclone: (clonedDoc) => {
-            // html2canvas 1.4.1 doesn't support oklch/oklab color functions (common in Tailwind 4).
-            // We use a regex that handles nested parentheses to clean these from styles.
-            const colorRegex = /(oklch|oklab|color-mix)\s*\((?:[^()]+|\((?:[^()]+|\([^()]*\))*\))*\)/gi;
-            const replaceColors = (str: string) => str.replace(colorRegex, '#000000');
-            
-            // 1. Clean all style tags specifically
+            // Simplified oklch cleaning for performance
+            // We focus on style tags and root variables
             const styleTags = clonedDoc.getElementsByTagName('style');
             for (let i = 0; i < styleTags.length; i++) {
               const tag = styleTags[i];
               if (tag.textContent) {
-                tag.textContent = replaceColors(tag.textContent);
+                // Bulk replace oklch-based values with standard dark hex
+                // This covers most Tailwind 4 color utilities
+                tag.textContent = tag.textContent.replace(/(oklch|oklab|color-mix)\s*\([^)]+\)/gi, '#000000');
               }
             }
             
-            // 2. Heavy-duty cleaning of all elements with inline styles or problematic attributes
-            clonedDoc.querySelectorAll('*').forEach(node => {
-              const el = node as HTMLElement;
-              
-              // Clean inline style attribute
-              const styleAttr = el.getAttribute('style');
-              if (styleAttr && (styleAttr.includes('oklch') || styleAttr.includes('oklab') || styleAttr.includes('color-mix'))) {
-                el.setAttribute('style', replaceColors(styleAttr));
-              }
-              
-              // Standardize common color-related attributes
-              if (el.hasAttribute('fill')) {
-                const fill = el.getAttribute('fill');
-                if (fill && (fill.includes('oklch') || fill.includes('oklab'))) el.setAttribute('fill', '#000000');
-              }
-              if (el.hasAttribute('stroke')) {
-                const stroke = el.getAttribute('stroke');
-                if (stroke && (stroke.includes('oklch') || stroke.includes('oklab'))) el.setAttribute('stroke', '#000000');
-              }
-            });
-
-            // 3. Inject a stylesheet that forces standard colors and resets problematic Tailwind 4 variables.
-            // This is the most effective way to handle computed styles that html2canvas reads.
+            // Inject a stylesheet that forces standard colors and resets problematic Tailwind 4 variables.
             const styleOverride = clonedDoc.createElement('style');
             styleOverride.textContent = `
               :root {
-                /* Common Tailwind 4 variables that often use oklch/oklab */
                 --tw-ring-color: #000000 !important;
                 --tw-shadow-color: rgba(0,0,0,0.1) !important;
                 --tw-outline-color: #000000 !important;
@@ -253,7 +231,6 @@ export default function App() {
                 --tw-text-opacity: 1 !important;
                 --tw-bg-opacity: 1 !important;
                 
-                /* Reset theme colors to standard hex where possible */
                 --color-stone-900: #1c1917 !important;
                 --color-stone-800: #292524 !important;
                 --color-stone-700: #44403c !important;
@@ -269,12 +246,11 @@ export default function App() {
                 color: #1c1917 !important;
               }
               
-              /* Force fallback for any element that might still be using problematic styles */
               * {
                 box-shadow: none !important;
                 text-shadow: none !important;
-                -webkit-font-smoothing: antialiased;
-                -moz-osx-font-smoothing: grayscale;
+                transition: none !important;
+                animation: none !important;
               }
               
               .pdf-page {
@@ -288,46 +264,33 @@ export default function App() {
                 border: none !important;
                 overflow: hidden !important;
                 position: relative !important;
+                display: block !important;
               }
               
-              /* Table specific standardizations */
               table, th, td {
                 border-color: #e7e5e4 !important;
                 color: #1c1917 !important;
               }
               
-              /* Ensure stone utility classes stay relevant */
               .text-stone-900 { color: #1c1917 !important; }
               .text-stone-500 { color: #78716c !important; }
-              .text-stone-400 { color: #a8a29e !important; }
               .bg-stone-100 { background-color: #f5f5f4 !important; }
-              .bg-stone-50 { background-color: #fafaf9 !important; }
             `;
             clonedDoc.head.appendChild(styleOverride);
           }
         });
 
-        // Use JPEG for smaller PDF size and faster generation
         const imgData = canvas.toDataURL('image/jpeg', 0.85);
-        
-        const imgProps = pdf.getImageProperties(imgData);
-        const imgHeight = (imgProps.height * pdfWidth) / imgProps.width;
-        
-        let heightLeft = imgHeight;
-        let position = 0;
-
-        while (heightLeft > 0) {
-          if (i > 0 || position < 0) pdf.addPage();
-          
-          pdf.addImage(imgData, 'JPEG', 0, position, pdfWidth, imgHeight, undefined, 'FAST');
-          heightLeft -= pdfHeight;
-          position -= pdfHeight;
-        }
+        if (i > 0) pdf.addPage();
+        pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST');
       }
       
       const fileName = `Quotation_${data.quotationNo.replace(/[\/\\]/g, '_')}.pdf`;
       pdf.save(fileName);
       console.log('PDF saved successfully');
+      
+      // Restore scroll
+      window.scrollTo(0, originalScrollTop);
     } catch (error) {
       console.error('PDF Generation Error:', error);
       alert('Failed to generate PDF. This can sometimes happen due to browser memory limits or if the page is too complex. Please try again.');
@@ -486,12 +449,12 @@ export default function App() {
                         <AlertCircle size={14} />
                         <p className="text-[10px] font-bold uppercase tracking-wider">PIN required to edit bank details</p>
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex flex-col sm:flex-row gap-2">
                         <input 
                           type="password"
                           placeholder="Enter PIN..."
                           className={cn(
-                            "flex-1 bg-[#050505] border px-3 py-2 text-sm text-stone-200 rounded focus:border-stone-500 outline-none transition-colors",
+                            "w-full sm:flex-1 bg-[#050505] border px-3 py-2 text-sm text-stone-200 rounded focus:border-stone-500 outline-none transition-colors",
                             pinError ? "border-red-500 animate-shake" : "border-[#333]"
                           )}
                           value={pinInput}
@@ -500,7 +463,7 @@ export default function App() {
                         />
                         <button 
                           onClick={handleVerifyPin}
-                          className="bg-stone-100 text-black px-4 py-2 rounded text-[10px] font-black uppercase hover:bg-white transition-colors"
+                          className="w-full sm:w-auto bg-stone-100 text-black px-4 py-2 rounded text-[10px] font-black uppercase hover:bg-white transition-colors shrink-0"
                         >
                           Unlock
                         </button>
