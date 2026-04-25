@@ -210,20 +210,40 @@ export default function App() {
           backgroundColor: '#ffffff',
           imageTimeout: 15000, // Increase timeout
           onclone: (clonedDoc) => {
+            // Function to strip modern CSS that html2canvas can't parse
+            const cleanCss = (css: string) => {
+              return css.replace(/(oklch|oklab|color-mix)\s*\((?:[^()]+|\([^()]*\))*\)/gi, '#000000');
+            };
+
+            // 1. Clean all style tags specifically
+            const styleTags = clonedDoc.getElementsByTagName('style');
+            for (let j = 0; j < styleTags.length; j++) {
+              const tag = styleTags[j];
+              if (tag.textContent) {
+                tag.textContent = cleanCss(tag.textContent);
+              }
+            }
+            
+            // 2. Clean inline styles on all elements
+            clonedDoc.querySelectorAll('*').forEach(node => {
+              const element = node as HTMLElement;
+              const styleAttr = element.getAttribute('style');
+              if (styleAttr && (styleAttr.includes('oklch') || styleAttr.includes('oklab') || styleAttr.includes('color-mix'))) {
+                element.setAttribute('style', cleanCss(styleAttr));
+              }
+            });
+
             const cloneEl = clonedDoc.getElementById(el.id);
             if (cloneEl) {
               cloneEl.style.width = '210mm';
               cloneEl.style.minHeight = '297mm';
             }
 
-            // Remove oklch/color-mix from all elements in clone
+            // Inject a stylesheet that forces standard colors and resets problematic Tailwind 4 variables.
             const styleOverride = clonedDoc.createElement('style');
             styleOverride.textContent = `
               * {
                 /* Aggressively strip problematic styles */
-                color: #000 !important;
-                border-color: #ccc !important;
-                background-image: none !important;
                 box-shadow: none !important;
                 text-shadow: none !important;
                 transition: none !important;
