@@ -1,0 +1,7 @@
+run = "npm run dev"
+
+[nix]
+channel = "stable-23_11"
+
+[deployment]
+run = ["npm", "run", "dev"]
